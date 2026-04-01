@@ -32,20 +32,44 @@ SHADES = [
 ]
 
 
-def load_prices() -> pd.DataFrame:
+_TICKERS = ("SPY", "SHV", "VIXY")
+
+
+def load_prices(start_date: str = START, end_date: str = END) -> pd.DataFrame:
+    """
+    Fetch aligned adjusted prices for all tickers. Handles yfinance column layout
+    (Adj Close vs Close) and strips timezone from the index so rows align across
+    tickers before dropna (avoids empty frames from tz-misaligned indices).
+    """
     raw = yf.download(
-        ["SPY", "SHV", "VIXY"],
-        start=START,
-        end=END,
+        list(_TICKERS),
+        start=start_date,
+        end=end_date,
         progress=False,
-        auto_adjust=True,
+        threads=True,
     )
     if raw.empty:
         raise RuntimeError("No data returned from yfinance.")
-    close = raw["Close"].copy()
-    close = close.dropna(how="any")
-    close = close.sort_index()
-    return close
+
+    cols = raw.columns
+    if isinstance(cols, pd.MultiIndex):
+        level0 = cols.get_level_values(0)
+        if "Adj Close" in level0:
+            prices = raw["Adj Close"].copy()
+        else:
+            prices = raw["Close"].copy()
+    else:
+        prices = raw[["Adj Close"]].copy() if "Adj Close" in raw.columns else raw[["Close"]].copy()
+        prices.columns = [_TICKERS[0]]
+
+    # Naive calendar dates: avoids UTC vs America/New_York row misalignment on merge/dropna
+    idx = pd.DatetimeIndex(prices.index)
+    prices = prices.copy()
+    prices.index = pd.to_datetime(pd.Series(idx).dt.date)
+    prices.index.name = "Date"
+
+    prices = prices.dropna(how="any").sort_index()
+    return prices
 
 
 def _year_end_rebalance_dates(index: pd.DatetimeIndex) -> set[pd.Timestamp]:

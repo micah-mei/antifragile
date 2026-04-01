@@ -16,15 +16,15 @@ import backtester as bt
 st.set_page_config(page_title="Portfolio backtest", layout="wide")
 st.title("Year-end rebalanced portfolios")
 st.caption(
-    f"Data: {bt.START} → {bt.END} (yfinance, adjusted close). "
+    f"Data: {bt.START} → {bt.END} (yfinance; Adj Close when provided, else Close). "
     f"Rebalance on the last trading day of each calendar year. "
     f"Starting capital ${bt.INITIAL:,.0f}."
 )
 
 
 @st.cache_data(ttl=86_400, show_spinner="Loading market data…")
-def load_prices_cached() -> pd.DataFrame:
-    return bt.load_prices()
+def load_prices_cached(start: str, end: str) -> pd.DataFrame:
+    return bt.load_prices(start, end)
 
 
 with st.sidebar:
@@ -51,7 +51,7 @@ with st.sidebar:
     shv_bar_pct = 100 - spy_bar_pct - vixy_bar_pct
     st.metric("SHV % (remainder)", f"{shv_bar_pct}%")
 
-prices = load_prices_cached()
+prices = load_prices_cached(bt.START, bt.END)
 if prices.empty:
     st.error("No overlapping price data.")
     st.stop()
