@@ -4,3 +4,6 @@ __pycache__/
 venv/
 .env
 .DS_Store
+
+# Local desktop captures; use docs/app-screenshot.png in the README
+/Screenshot*.png
