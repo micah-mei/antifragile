@@ -35,40 +35,76 @@ SHADES = [
 _TICKERS = ("SPY", "SHV", "VIXY")
 
 
-def load_prices(start_date: str = START, end_date: str = END) -> pd.DataFrame:
-    """
-    Fetch aligned adjusted prices for all tickers. Handles yfinance column layout
-    (Adj Close vs Close) and strips timezone from the index so rows align across
-    tickers before dropna (avoids empty frames from tz-misaligned indices).
-    """
-    raw = yf.download(
-        list(_TICKERS),
-        start=start_date,
-        end=end_date,
-        progress=False,
-        threads=True,
-    )
+def _close_series_from_raw(raw: pd.DataFrame, symbol: str) -> pd.Series:
+    """Pick Adj Close or Close from a yfinance download (single- or multi-ticker layout)."""
     if raw.empty:
-        raise RuntimeError("No data returned from yfinance.")
+        return pd.Series(dtype=float, name=symbol)
 
     cols = raw.columns
     if isinstance(cols, pd.MultiIndex):
         level0 = cols.get_level_values(0)
-        if "Adj Close" in level0:
-            prices = raw["Adj Close"].copy()
+        field = "Adj Close" if "Adj Close" in level0 else "Close"
+        block = raw[field]
+        if isinstance(block, pd.DataFrame):
+            if symbol in block.columns:
+                s = block[symbol].copy()
+            else:
+                s = block.iloc[:, 0].copy()
         else:
-            prices = raw["Close"].copy()
+            s = block.copy()
     else:
-        prices = raw[["Adj Close"]].copy() if "Adj Close" in raw.columns else raw[["Close"]].copy()
-        prices.columns = [_TICKERS[0]]
+        field = "Adj Close" if "Adj Close" in raw.columns else "Close"
+        s = raw[field].copy()
 
-    # Naive calendar dates: avoids UTC vs America/New_York row misalignment on merge/dropna
-    idx = pd.DatetimeIndex(prices.index)
-    prices = prices.copy()
-    prices.index = pd.to_datetime(pd.Series(idx).dt.date)
-    prices.index.name = "Date"
+    s.name = symbol
+    return s
 
+
+def _normalize_daily_index(s: pd.Series) -> pd.Series:
+    """Naive calendar dates; drop duplicate dates (keep last observation)."""
+    s = s.copy()
+    s.index = pd.DatetimeIndex(pd.to_datetime(pd.Series(s.index).dt.date))
+    s = s[~s.index.duplicated(keep="last")]
+    s.index.name = "Date"
+    return s
+
+
+def load_prices(start_date: str = START, end_date: str = END) -> pd.DataFrame:
+    """
+    Fetch aligned prices per ticker, then inner-join on calendar dates.
+
+    Per-ticker downloads (no batch threading) are far more reliable on constrained
+    hosts (e.g. Render) where threaded multi-ticker calls often return NaN columns.
+    """
+    per_symbol: dict[str, pd.Series] = {}
+    diagnostics: list[str] = []
+
+    for sym in _TICKERS:
+        raw = yf.download(
+            sym,
+            start=start_date,
+            end=end_date,
+            progress=False,
+            threads=False,
+            auto_adjust=False,
+        )
+        s = _close_series_from_raw(raw, sym)
+        s = _normalize_daily_index(s)
+        n_valid = int(s.notna().sum())
+        per_symbol[sym] = s
+        diagnostics.append(f"{sym}: {n_valid} non-null rows (download empty={raw.empty})")
+
+    prices = pd.concat(per_symbol.values(), axis=1, join="inner")
     prices = prices.dropna(how="any").sort_index()
+
+    if prices.empty:
+        raise RuntimeError(
+            "No overlapping trading days across all tickers after alignment. "
+            "This often happens when Yahoo Finance rate-limits or blocks cloud IPs, "
+            "or when a ticker returns all NaN. Details: "
+            + "; ".join(diagnostics)
+        )
+
     return prices
 
 

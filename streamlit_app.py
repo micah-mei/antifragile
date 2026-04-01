@@ -22,8 +22,9 @@ st.caption(
 )
 
 
-@st.cache_data(ttl=86_400, show_spinner="Loading market data…")
+@st.cache_data(ttl=3600, show_spinner="Loading market data…")
 def load_prices_cached(start: str, end: str) -> pd.DataFrame:
+    """Raises RuntimeError if Yahoo data cannot be aligned (failures are not cached)."""
     return bt.load_prices(start, end)
 
 
@@ -51,7 +52,23 @@ with st.sidebar:
     shv_bar_pct = 100 - spy_bar_pct - vixy_bar_pct
     st.metric("SHV % (remainder)", f"{shv_bar_pct}%")
 
-prices = load_prices_cached(bt.START, bt.END)
+    st.divider()
+    if st.button("Clear price cache & reload"):
+        load_prices_cached.clear()
+        st.rerun()
+
+try:
+    prices = load_prices_cached(bt.START, bt.END)
+except RuntimeError as err:
+    st.error("Could not load aligned market data from Yahoo Finance.")
+    st.warning(str(err))
+    st.info(
+        "This is common on cloud hosts: batch downloads or rate limits can return empty "
+        "or NaN-filled series. Try **Clear price cache & reload** in the sidebar, or "
+        "wait a few minutes and refresh."
+    )
+    st.stop()
+
 if prices.empty:
     st.error("No overlapping price data.")
     st.stop()
