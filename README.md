@@ -4,6 +4,8 @@
 
 **Repository:** [github.com/micah-mei/antifragile](https://github.com/micah-mei/antifragile)
 
+**Live app:** [barbell-dashboard.onrender.com](https://barbell-dashboard.onrender.com)
+
 Traditional portfolio theory often leans on Gaussian comfort: mean–variance optimization and “balanced” blends implicitly treat extreme events as rare curiosities. This project takes the opposite stance: it makes **tail risk and convexity** first-class citizens in both the investment narrative and the codebase.
 
 ---
